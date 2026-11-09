@@ -1,0 +1,9 @@
+
+fastapi
+uvicorn
+pydantic
+semantic-kernel
+python-dotenv
+pytest
+httpx
+ipykernel

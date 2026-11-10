@@ -1,3 +1,4 @@
+
 import asyncio
 
 from app.agents.alert_agent import AlertAgent
@@ -7,6 +8,7 @@ from app.agents.mitigation_agent import MitigationAgent
 
 
 def create_test_board(severity="high"):
+
     alert_agent = AlertAgent()
 
     board = asyncio.run(
@@ -24,6 +26,7 @@ def create_test_board(severity="high"):
 
 
 def test_mitigation_agent_recommends_action():
+
     board = create_test_board()
     agent = MitigationAgent()
 
@@ -32,10 +35,12 @@ def test_mitigation_agent_recommends_action():
     assert decision.action in [
         "rollback", "restart", "failover", "monitor", "escalate"
     ]
+
     assert decision.likely_cause != ""
 
 
 def test_mitigation_agent_uses_board_evidence():
+
     board = create_test_board()
     agent = MitigationAgent()
 
@@ -49,9 +54,24 @@ def test_mitigation_agent_uses_board_evidence():
 
 
 def test_critical_incident_recommends_failover():
+
     board = create_test_board(severity="critical")
     agent = MitigationAgent()
 
     decision = asyncio.run(agent.recommend(board))
 
     assert decision.action == "failover"
+
+
+def test_mitigation_agent_posts_recommendation_to_board():
+
+    board = create_test_board()
+    agent = MitigationAgent()
+
+    decision = asyncio.run(agent.recommend(board))
+
+    recommendations = board.get_recommendations()
+
+    assert len(recommendations) == 1
+    assert recommendations[0].action == decision.action
+    assert recommendations[0].likely_cause == decision.likely_cause

@@ -1,3 +1,4 @@
+
 import json
 
 from semantic_kernel import Kernel
@@ -43,6 +44,11 @@ class CommanderTools:
         if action not in allowed_actions:
             action = "escalate"
 
+        # Use only finding IDs available on the shared board.
+        supporting_ids = [
+            finding["finding_id"] for finding in findings
+        ]
+
         return json.dumps({
             "action": action,
             "likely_cause": recommendation.get(
@@ -53,9 +59,7 @@ class CommanderTools:
                 "reason",
                 "No reason provided"
             ),
-            "supporting_finding_ids": [
-                finding["finding_id"] for finding in findings
-            ]
+            "supporting_finding_ids": supporting_ids
         })
 
     @kernel_function(
@@ -85,9 +89,30 @@ class IncidentCommander:
             plugin_name="commander_tools"
         )
 
-    async def make_decision(self, board: IncidentBoard, recommendation):
+    async def make_decision(self, board: IncidentBoard):
 
+        # Read investigation findings from the shared board.
         findings = board.get_findings()
+
+        # Read mitigation recommendations from the shared board.
+        recommendations = board.get_recommendations()
+
+        # Use the latest recommendation posted by Mitigation Agent.
+        if recommendations:
+            recommendation = recommendations[-1]
+
+            recommendation_data = json.dumps({
+                "action": recommendation.action,
+                "likely_cause": recommendation.likely_cause,
+                "reason": recommendation.reason
+            })
+        else:
+            # Safely escalate if no recommendation is available.
+            recommendation_data = json.dumps({
+                "action": "escalate",
+                "likely_cause": "Insufficient evidence",
+                "reason": "No mitigation recommendation was posted."
+            })
 
         findings_data = json.dumps([
             {
@@ -98,12 +123,7 @@ class IncidentCommander:
             for finding in findings
         ])
 
-        recommendation_data = json.dumps({
-            "action": recommendation.action,
-            "likely_cause": recommendation.likely_cause,
-            "reason": recommendation.reason
-        })
-
+        # Tool 1: Review the evidence and recommendation.
         result1 = await self.kernel.invoke(
             plugin_name="commander_tools",
             function_name="review_incident_evidence",
@@ -113,6 +133,7 @@ class IncidentCommander:
 
         analysis_data = str(result1.value)
 
+        # Tool 2: Prepare the final decision.
         result2 = await self.kernel.invoke(
             plugin_name="commander_tools",
             function_name="prepare_final_decision",
@@ -121,6 +142,7 @@ class IncidentCommander:
 
         decision_data = json.loads(str(result2.value))
 
+        # Create the final decision.
         decision = MitigationDecision(
             action=decision_data["action"],
             likely_cause=decision_data["likely_cause"],
@@ -128,6 +150,7 @@ class IncidentCommander:
             supporting_finding_ids=decision_data["supporting_finding_ids"]
         )
 
+        # Post the final decision to the shared board.
         board.post_decision(decision)
 
         print("Incident Commander: Final decision recorded.")

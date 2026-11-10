@@ -1,3 +1,4 @@
+
 from app.agents.alert_agent import AlertAgent
 from app.agents.logs_agent import LogsAgent
 from app.agents.dependency_agent import DependencyAgent
@@ -20,22 +21,29 @@ class IncidentWorkflow:
 
         print("\n========== INCIDENT WORKFLOW STARTED ==========\n")
 
+        # Step 1: Alert Agent creates the shared Incident Board.
         board = await self.alert_agent.process_alert(
             service=service,
             symptom=symptom,
             severity=severity
         )
 
+        # Step 2: Logs Agent investigates and posts findings.
         await self.logs_agent.investigate(board)
+
+        # Step 3: Dependency Agent investigates and posts findings.
         await self.dependency_agent.investigate(board)
 
-        recommendation = await self.mitigation_agent.recommend(board)
+        # Step 4: Mitigation Agent analyzes evidence and posts its recommendation.
+        await self.mitigation_agent.recommend(board)
 
-        await self.commander.make_decision(board, recommendation)
+        # Step 5: Incident Commander reads the board and records the final decision.
+        await self.commander.make_decision(board)
 
+        # Get the complete incident report from the shared board.
         report = board.get_board_state()
 
-        # Save the completed incident report
+        # Save the completed incident report in the append-only run log.
         save_incident_run(report)
 
         print("\n========== INCIDENT WORKFLOW COMPLETED ==========\n")

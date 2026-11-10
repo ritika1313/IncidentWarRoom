@@ -14,22 +14,14 @@ class IncidentBoard:
 
     def __init__(self, incident: IncidentRecord):
 
-        # Unique incident information.
         self.incident = incident
-
-        # Findings posted by all agents.
         self.findings: list[AgentFinding] = []
-
-        # Decisions made by Incident Commander.
+        self.recommendations: list[MitigationDecision] = []
         self.decisions: list[MitigationDecision] = []
-
-        # Append-only activity timeline.
         self.timeline: list[dict[str, Any]] = []
 
-        # Protect shared state during concurrent access.
         self._lock = RLock()
 
-        # Record initial incident creation.
         self._record_event(
             agent="Alert Agent",
             event="incident_received",
@@ -40,7 +32,7 @@ class IncidentBoard:
             }
         )
 
-    # Record every activity on the board.
+    # Record an activity on the timeline.
     def _record_event(
         self,
         agent: str,
@@ -55,13 +47,13 @@ class IncidentBoard:
             "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
-    # Allow an agent to read current incident information.
+    # Read incident information.
     def get_incident(self):
 
         with self._lock:
             return self.incident.model_copy(deep=True)
 
-    # Allow an agent to read all available findings.
+    # Read all investigation findings.
     def get_findings(self):
 
         with self._lock:
@@ -70,12 +62,14 @@ class IncidentBoard:
                 for finding in self.findings
             ]
 
-    # Allow an agent to post its investigation findings.
+    # Post investigation findings to the board.
     def post_finding(self, finding: AgentFinding):
 
         with self._lock:
 
-            self.findings.append(finding.model_copy(deep=True))
+            self.findings.append(
+                finding.model_copy(deep=True)
+            )
 
             self._record_event(
                 agent=finding.agent,
@@ -88,24 +82,90 @@ class IncidentBoard:
                 }
             )
 
-    # Store the Incident Commander's final decision.
+    # Post mitigation recommendation to the shared board.
+    def post_recommendation(
+        self,
+        recommendation: MitigationDecision
+    ):
+
+        with self._lock:
+
+            available_ids = {
+                finding.finding_id
+                for finding in self.findings
+            }
+
+            if not set(
+                recommendation.supporting_finding_ids
+            ).issubset(available_ids):
+
+                raise ValueError(
+                    "Recommendation references findings not present on the board."
+                )
+
+            self.recommendations.append(
+                recommendation.model_copy(deep=True)
+            )
+
+            self._record_event(
+                agent="Mitigation Agent",
+                event="recommendation_posted",
+                details=recommendation.model_dump(mode="json")
+            )
+
+    # Read recommendations from the board.
+    def get_recommendations(self):
+
+        with self._lock:
+            return [
+                recommendation.model_copy(deep=True)
+                for recommendation in self.recommendations
+            ]
+
+    # Post final decision made by Incident Commander.
     def post_decision(self, decision: MitigationDecision):
 
         with self._lock:
 
-            # Verify that all referenced findings exist.
+            # A recommendation must exist before a final decision.
+            if not self.recommendations:
+                raise ValueError(
+                    "Cannot record decision without a mitigation recommendation."
+                )
+
+            # Read the latest recommendation from the board.
+            recommendation = self.recommendations[-1]
+
+            # Final action must match the posted recommendation.
+            if decision.action != recommendation.action:
+                raise ValueError(
+                    "Final decision does not match the mitigation recommendation."
+                )
+
+            # Final cause must match the posted recommendation.
+            if decision.likely_cause != recommendation.likely_cause:
+                raise ValueError(
+                    "Final decision does not match the recommended likely cause."
+                )
+
+            # Validate supporting finding IDs.
             available_ids = {
-                finding.finding_id for finding in self.findings
+                finding.finding_id
+                for finding in self.findings
             }
 
-            if not set(decision.supporting_finding_ids).issubset(
-                available_ids
-            ):
+            if not set(
+                decision.supporting_finding_ids
+            ).issubset(available_ids):
+
                 raise ValueError(
                     "Decision references findings not present on the board."
                 )
 
-            self.decisions.append(decision.model_copy(deep=True))
+            # Store the final decision.
+            self.decisions.append(
+                decision.model_copy(deep=True)
+            )
 
             self._record_event(
                 agent="Incident Commander",
@@ -113,7 +173,7 @@ class IncidentBoard:
                 details=decision.model_dump(mode="json")
             )
 
-    # Return a complete snapshot of the board.
+    # Return complete shared board state.
     def get_board_state(self):
 
         with self._lock:
@@ -124,6 +184,11 @@ class IncidentBoard:
                 "findings": [
                     finding.model_dump(mode="json")
                     for finding in self.findings
+                ],
+
+                "recommendations": [
+                    recommendation.model_dump(mode="json")
+                    for recommendation in self.recommendations
                 ],
 
                 "decisions": [

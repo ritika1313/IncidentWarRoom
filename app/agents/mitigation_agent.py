@@ -1,3 +1,4 @@
+
 import json
 
 from semantic_kernel import Kernel
@@ -96,7 +97,10 @@ class MitigationAgent:
 
     async def recommend(self, board: IncidentBoard):
 
+        # Read incident information from the shared board.
         incident = board.get_incident()
+
+        # Read findings posted by Logs and Dependency Agents.
         findings = board.get_findings()
 
         findings_data = json.dumps([
@@ -109,6 +113,7 @@ class MitigationAgent:
             for finding in findings
         ])
 
+        # Tool 1: Analyze the available incident evidence.
         result1 = await self.kernel.invoke(
             plugin_name="mitigation_tools",
             function_name="analyze_incident_evidence",
@@ -117,6 +122,7 @@ class MitigationAgent:
 
         analysis_data = str(result1.value)
 
+        # Tool 2: Recommend an appropriate mitigation action.
         result2 = await self.kernel.invoke(
             plugin_name="mitigation_tools",
             function_name="recommend_mitigation",
@@ -126,6 +132,7 @@ class MitigationAgent:
 
         recommendation = json.loads(str(result2.value))
 
+        # Create the mitigation decision.
         decision = MitigationDecision(
             action=recommendation["action"],
             likely_cause=recommendation["likely_cause"],
@@ -135,7 +142,10 @@ class MitigationAgent:
             ]
         )
 
-        print("Mitigation Agent: Recommendation prepared.")
+        # IMPORTANT: Post recommendation to the shared Incident Board.
+        board.post_recommendation(decision)
+
+        print("Mitigation Agent: Recommendation posted to Incident Board.")
         print("Recommended action:", decision.action)
         print("Likely cause:", decision.likely_cause)
 
